@@ -1,198 +1,109 @@
-# Secure GitOps Platform
+# azure-cicd-pipeline
 
-![CI](https://github.com/Lokesh0423/secure-gitops-platform/actions/workflows/ci-cd.yaml/badge.svg)
+Multi-stage Azure DevOps CI/CD pipeline deploying a Dockerized Node.js app to AKS.
 
-A production-grade Internal Developer Platform built on Azure Kubernetes Service, demonstrating Platform Engineering, DevSecOps, and GitOps principles end-to-end.
-
----
-
-## Architecture Overview
+## Pipeline Architecture
 
 ```
-Developer pushes code
-        │
-        ▼
-┌─────────────────────┐
-│   GitHub Actions    │  <- CI: Build + Test + Trivy Scan
-└────────┬────────────┘
-         │ image pushed to ACR (only if scan passes)
-         ▼
-┌─────────────────────┐
-│      ArgoCD         │  <- GitOps: auto-syncs Helm chart to AKS
-└────────┬────────────┘
+Code Push
+    │
+    ▼
+┌─────────────────┐
+│  Stage 1: Build │  → Install deps → Run tests → Build Docker image → Push to ACR
+└────────┬────────┘
          │
          ▼
-┌─────────────────────┐
-│   AKS Cluster       │  <- Provisioned by Terraform
-│  ┌───────────────┐  │
-│  │ OPA Gatekeeper│  │  <- Policy enforcement (no root, resource limits required)
-│  └───────────────┘  │
-│  ┌───────────────┐  │
-│  │  App (Helm)   │  │  <- Packaged via Helm chart
-│  └───────────────┘  │
-│  ┌───────────────┐  │
-│  │  Prometheus   │  │  <- Metrics scraping
-│  │  + Grafana    │  │  <- Dashboards + alerting
-│  └───────────────┘  │
-└─────────────────────┘
+┌──────────────────────┐
+│ Stage 2: Staging     │  → Pull image from ACR → Deploy to AKS (staging namespace)
+└──────────┬───────────┘
+           │  (main branch only)
+           ▼
+┌──────────────────────┐
+│ Stage 3: Production  │  → Deploy to AKS (production namespace) → Health check
+└──────────────────────┘
 ```
-
----
 
 ## Stack
 
-| Layer              | Tool                   |
-| ------------------ | ---------------------- |
-| Cloud Infra        | Azure (AKS, ACR, VNet) |
-| IaC                | Terraform              |
-| App Packaging      | Helm                   |
-| GitOps             | ArgoCD                 |
-| CI/CD              | GitHub Actions         |
-| Container Security | Trivy                  |
-| Policy Enforcement | OPA Gatekeeper         |
-| Monitoring         | Prometheus + Grafana   |
-| Language           | Node.js (Express)      |
+| Component | Technology |
+|-----------|-----------|
+| CI/CD | Azure DevOps Pipelines |
+| Containerization | Docker (multi-stage build) |
+| Registry | Azure Container Registry (ACR) |
+| Orchestration | Azure Kubernetes Service (AKS) |
+| Infra provisioning | Terraform (see `/terraform`) |
+| App | Node.js + Express |
 
----
-
-## Project Structure
+## Repository Structure
 
 ```
-secure-gitops-platform/
-├── infrastructure/        # Terraform: AKS + networking
-├── app/                   # Node.js app source
-├── helm/                  # Helm chart for app deployment
-├── argocd/                # ArgoCD Application manifests
-├── security/              # Trivy config + OPA policies
-├── monitoring/            # Prometheus + Grafana configs
-└── .github/workflows/     # CI/CD pipeline
+azure-cicd-pipeline/
+├── app/
+│   ├── app.js               # Express app with /health endpoint
+│   ├── package.json
+│   └── Dockerfile           # Multi-stage, non-root user
+├── k8s/
+│   ├── deployment.yaml      # Rolling update, resource limits, probes
+│   └── service.yaml         # LoadBalancer service
+├── .azure-pipelines/
+│   └── azure-pipelines.yml  # 3-stage pipeline: Build → Staging → Production
+├── terraform/
+│   └── README.md            # Links to terraform-azure-infra repo
+└── README.md
 ```
 
----
-
-## Key Design Decisions
-
-**Why ArgoCD over manual kubectl apply?**
-GitOps means the Git repo is the single source of truth. ArgoCD continuously reconciles cluster state against the repo, so any drift is automatically corrected. This eliminates deploy inconsistencies across environments.
-
-**Why OPA Gatekeeper?**
-Kubernetes RBAC controls who can do what, but does not enforce what they deploy. OPA policies block non-compliant workloads at admission time. Containers running as root are rejected before they ever reach a node.
-
-**Why Trivy in CI, not just at runtime?**
-Shift-left security. Catching a critical CVE at image build time costs minutes to fix. Catching it in production costs hours of incident response and potential data exposure.
-
-**Why a monorepo?**
-In a real platform team, keeping infra, app, and deployment config in separate repos creates coordination overhead. A monorepo makes the full delivery lifecycle visible and auditable in one place.
-
----
-
-## Getting Started
+## Setup
 
 ### Prerequisites
+- Azure subscription
+- Azure DevOps organization
+- AKS cluster + ACR provisioned via [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra)
 
-- Azure CLI + active subscription
-- Terraform >= 1.5
-- kubectl
-- Helm >= 3.x
-- ArgoCD CLI
+### Steps
 
-### 1. Provision Infrastructure
+1. **Fork/clone this repo** and import into Azure DevOps
 
-```bash
-cd infrastructure/terraform/environments/dev
-terraform init
-terraform plan
-terraform apply
-```
+2. **Create service connection** in Azure DevOps:
+   - Project Settings → Service Connections → New → Azure Resource Manager
+   - Name it `Azure-Service-Connection`
 
-### 2. Configure kubectl
+3. **Update pipeline variables** in `azure-pipelines.yml`:
+   ```yaml
+   ACR_NAME: 'youracrname'
+   AKS_CLUSTER: 'your-aks-cluster'
+   AKS_RESOURCE_GROUP: 'your-resource-group'
+   ```
 
-```bash
-az aks get-credentials --resource-group rg-gitops-dev --name aks-gitops-dev
-```
+4. **Create namespaces** in AKS:
+   ```bash
+   kubectl create namespace staging
+   kubectl create namespace production
+   ```
 
-### 3. Install ArgoCD
+5. **Run the pipeline** — push to `develop` triggers Build + Staging. Push to `main` triggers all 3 stages including Production.
 
-```bash
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-```
+## Key Features
 
-### 4. Deploy App via ArgoCD
+- **Multi-stage build** — Docker image with non-root user for security
+- **Rolling updates** — zero-downtime deployments on AKS
+- **Health checks** — liveness and readiness probes on `/health`
+- **Resource limits** — CPU and memory constraints defined per pod
+- **Branch strategy** — `develop` deploys to staging, `main` deploys to production
+- **End-to-end infra** — pairs with [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) for full IaC story
 
-```bash
-kubectl apply -f argocd/application.yaml
-```
+## What I Learned Building This
 
-### 5. Access Grafana Dashboard
+**Multi-stage Docker builds** — Separating the builder and runtime stages keeps the final image lean and clean. Adding a non-root user felt like a small thing but it's the kind of security detail that matters in production.
 
-```bash
-kubectl port-forward svc/grafana 3000:3000 -n monitoring
-# Open http://localhost:3000
-```
+**Kubernetes probes** — Liveness vs readiness took me a while to really get. Liveness restarts a broken container. Readiness stops traffic going to a container that isn't ready yet. Both matter, they're not the same thing.
 
----
+**Branch strategy** — Tying `develop` to staging and `main` to production makes the pipeline self-documenting. The branch name tells you exactly where your code is going.
 
-## CI/CD Pipeline Flow
+**Rolling updates** — Setting `maxUnavailable: 0` means zero downtime during deploys. Learned this the hard way understanding what happens when you don't set it.
 
-```
-push to main
-    │
-    ├─ lint & test
-    ├─ docker build
-    ├─ trivy image scan ──► FAIL = pipeline stops, no deploy
-    ├─ push to ACR
-    └─ update Helm values (new image tag)
-            │
-            └─ ArgoCD detects git change -> syncs to AKS
-```
+**ACR + AKS connection** — The service connection in Azure DevOps is the glue between the pipeline and the cloud. Getting that auth flow right was the most fiddly part of the whole setup.
 
----
+## Related
 
-## Security Controls
-
-| Control                      | Implementation                       |
-| ---------------------------- | ------------------------------------ |
-| Image vulnerability scanning | Trivy (CRITICAL CVEs block pipeline) |
-| No root containers           | OPA ConstraintTemplate               |
-| Resource limits required     | OPA ConstraintTemplate               |
-| Least privilege RBAC         | Kubernetes ServiceAccount per app    |
-| Secrets management           | Azure Key Vault + CSI driver         |
-
----
-
-## Monitoring
-
-- Prometheus scrapes app metrics every 15s
-- Grafana dashboards: request rate, error rate, pod CPU/memory
-- Alertmanager fires on error rate above 5% for 5 minutes
-
----
-
-## Challenges and Solutions
-
-**CI pipeline cache failures in GitHub Actions**
-The npm cache-dependency-path was mismatched with the working-directory context, causing the cache step to fail on every run. Identified the path conflict and removed the cache config to unblock the pipeline.
-
-**Terraform module variable contracts**
-The networking module was missing its variables.tf file, causing unsupported argument errors during terraform validate. Defined the full module interface and fixed terraform fmt compliance across all modules.
-
-**Local dev environment disk pressure**
-C: drive reached 100% capacity, blocking npm installs and git operations entirely. Disabled hibernation to free 16GB, redirected npm cache to D: drive, and cleared system temp files to restore a working dev environment.
-
----
-
-## Related Repos
-
-- [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra)
-- [azure-cicd-pipeline](https://github.com/Lokesh0423/azure-cicd-pipeline)
-- [k8s-helm-charts](https://github.com/Lokesh0423/k8s-helm-charts)
-- [nodejs-k8s-minikube-app](https://github.com/Lokesh0423/nodejs-k8s-minikube-app)
-
----
-
-## Author
-
-**Lokesh Kumar Gaddala** - Cloud DevOps Engineer
-
-[LinkedIn](https://linkedin.com/in/lokeshkumargaddala) · [GitHub](https://github.com/Lokesh0423)
+- [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) — AKS, VNet, ACR, Azure Monitor modules
+- `k8s-helm-charts` *(coming soon)* — Helm charts for parameterized deployments
