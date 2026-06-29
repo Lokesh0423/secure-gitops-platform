@@ -1,6 +1,6 @@
 # Secure GitOps Platform
 
-A production-grade Internal Developer Platform (IDP) built on Azure Kubernetes Service — demonstrating Platform Engineering, DevSecOps, and GitOps principles end-to-end.
+A production-grade Internal Developer Platform built on Azure Kubernetes Service, demonstrating Platform Engineering, DevSecOps, and GitOps principles end-to-end.
 
 ---
 
@@ -11,26 +11,26 @@ Developer pushes code
         │
         ▼
 ┌─────────────────────┐
-│   GitHub Actions    │  ← CI: Build + Test + Trivy Scan + SAST
+│   GitHub Actions    │  <- CI: Build + Test + Trivy Scan
 └────────┬────────────┘
          │ image pushed to ACR (only if scan passes)
          ▼
 ┌─────────────────────┐
-│      ArgoCD         │  ← GitOps: auto-syncs Helm chart to AKS
+│      ArgoCD         │  <- GitOps: auto-syncs Helm chart to AKS
 └────────┬────────────┘
          │
          ▼
 ┌─────────────────────┐
-│   AKS Cluster       │  ← Provisioned by Terraform
+│   AKS Cluster       │  <- Provisioned by Terraform
 │  ┌───────────────┐  │
-│  │ OPA Gatekeeper│  │  ← Policy enforcement (no root, resource limits required)
+│  │ OPA Gatekeeper│  │  <- Policy enforcement (no root, resource limits required)
 │  └───────────────┘  │
 │  ┌───────────────┐  │
-│  │  App (Helm)   │  │  ← Packaged via Helm chart
+│  │  App (Helm)   │  │  <- Packaged via Helm chart
 │  └───────────────┘  │
 │  ┌───────────────┐  │
-│  │  Prometheus   │  │  ← Metrics scraping
-│  │  + Grafana    │  │  ← Dashboards + alerting
+│  │  Prometheus   │  │  <- Metrics scraping
+│  │  + Grafana    │  │  <- Dashboards + alerting
 │  └───────────────┘  │
 └─────────────────────┘
 ```
@@ -39,17 +39,17 @@ Developer pushes code
 
 ## Stack
 
-| Layer | Tool |
-|---|---|
-| Cloud Infra | Azure (AKS, ACR, VNet) |
-| IaC | Terraform |
-| App Packaging | Helm |
-| GitOps | ArgoCD |
-| CI/CD | GitHub Actions |
-| Container Security | Trivy |
-| Policy Enforcement | OPA Gatekeeper |
-| Monitoring | Prometheus + Grafana |
-| Language | Node.js (Express) |
+| Layer              | Tool                   |
+| ------------------ | ---------------------- |
+| Cloud Infra        | Azure (AKS, ACR, VNet) |
+| IaC                | Terraform              |
+| App Packaging      | Helm                   |
+| GitOps             | ArgoCD                 |
+| CI/CD              | GitHub Actions         |
+| Container Security | Trivy                  |
+| Policy Enforcement | OPA Gatekeeper         |
+| Monitoring         | Prometheus + Grafana   |
+| Language           | Node.js (Express)      |
 
 ---
 
@@ -71,22 +71,23 @@ secure-gitops-platform/
 ## Key Design Decisions
 
 **Why ArgoCD over manual kubectl apply?**
-GitOps means the Git repo is the single source of truth. ArgoCD continuously reconciles cluster state against the repo — any drift is automatically corrected. This eliminates "it works on my machine" deploy bugs.
+GitOps means the Git repo is the single source of truth. ArgoCD continuously reconciles cluster state against the repo, so any drift is automatically corrected. This eliminates deploy inconsistencies across environments.
 
 **Why OPA Gatekeeper?**
-Kubernetes RBAC controls who can do what, but doesn't enforce *what* they deploy. OPA policies block non-compliant workloads at admission time — e.g., containers running as root are rejected before they ever reach a node.
+Kubernetes RBAC controls who can do what, but does not enforce what they deploy. OPA policies block non-compliant workloads at admission time. Containers running as root are rejected before they ever reach a node.
 
 **Why Trivy in CI, not just at runtime?**
 Shift-left security. Catching a critical CVE at image build time costs minutes to fix. Catching it in production costs hours of incident response and potential data exposure.
 
 **Why a monorepo?**
-In a real platform team, infra, app, and deployment config living in separate repos causes coordination overhead. A monorepo makes the full delivery lifecycle visible and auditable in one place.
+In a real platform team, keeping infra, app, and deployment config in separate repos creates coordination overhead. A monorepo makes the full delivery lifecycle visible and auditable in one place.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - Azure CLI + active subscription
 - Terraform >= 1.5
 - kubectl
@@ -94,6 +95,7 @@ In a real platform team, infra, app, and deployment config living in separate re
 - ArgoCD CLI
 
 ### 1. Provision Infrastructure
+
 ```bash
 cd infrastructure/terraform/environments/dev
 terraform init
@@ -102,22 +104,26 @@ terraform apply
 ```
 
 ### 2. Configure kubectl
+
 ```bash
 az aks get-credentials --resource-group rg-gitops-dev --name aks-gitops-dev
 ```
 
 ### 3. Install ArgoCD
+
 ```bash
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
 ### 4. Deploy App via ArgoCD
+
 ```bash
 kubectl apply -f argocd/application.yaml
 ```
 
 ### 5. Access Grafana Dashboard
+
 ```bash
 kubectl port-forward svc/grafana 3000:3000 -n monitoring
 # Open http://localhost:3000
@@ -136,41 +142,42 @@ push to main
     ├─ push to ACR
     └─ update Helm values (new image tag)
             │
-            └─ ArgoCD detects git change → syncs to AKS
+            └─ ArgoCD detects git change -> syncs to AKS
 ```
 
 ---
 
 ## Security Controls
 
-| Control | Implementation |
-|---|---|
-| Image vulnerability scanning | Trivy (CRITICAL CVEs block pipeline) |
-| No root containers | OPA ConstraintTemplate |
-| Resource limits required | OPA ConstraintTemplate |
-| Least privilege RBAC | Kubernetes ServiceAccount per app |
-| Secrets management | Azure Key Vault + CSI driver |
+| Control                      | Implementation                          |
+| ---------------------------- | --------------------------------------- |
+| Image vulnerability scanning | Trivy (CRITICAL CVEs block pipeline)    |
+| No root containers           | OPA ConstraintTemplate                  |
+| Resource limits required     | OPA ConstraintTemplate                  |
+| Least privilege RBAC         | Kubernetes ServiceAccount per app       |
+| Secrets management           | Azure Key Vault + CSI driver            |
 
 ---
 
 ## Monitoring
 
-- **Prometheus** scrapes app metrics every 15s
-- **Grafana** dashboards: request rate, error rate, pod CPU/memory
-- **Alertmanager** fires on error rate > 5% for 5 minutes
+- Prometheus scrapes app metrics every 15s
+- Grafana dashboards: request rate, error rate, pod CPU/memory
+- Alertmanager fires on error rate above 5% for 5 minutes
 
 ---
 
-## Related Repos (Archived — merged into this platform)
+## Related Repos
 
-- [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) — original Terraform work
-- [azure-cicd-pipeline](https://github.com/Lokesh0423/azure-cicd-pipeline) — original CI/CD work
-- [k8s-helm-charts](https://github.com/Lokesh0423/k8s-helm-charts) — original Helm work
-- [nodejs-k8s-minikube-app](https://github.com/Lokesh0423/nodejs-k8s-minikube-app) — original app
+- [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra)
+- [azure-cicd-pipeline](https://github.com/Lokesh0423/azure-cicd-pipeline)
+- [k8s-helm-charts](https://github.com/Lokesh0423/k8s-helm-charts)
+- [nodejs-k8s-minikube-app](https://github.com/Lokesh0423/nodejs-k8s-minikube-app)
 
 ---
 
 ## Author
 
-**Lokesh Kumar Gaddala** — Cloud DevOps Engineer  
+**Lokesh Kumar Gaddala** - Cloud DevOps Engineer
+
 [LinkedIn](https://linkedin.com/in/lokeshkumargaddala) · [GitHub](https://github.com/Lokesh0423)
