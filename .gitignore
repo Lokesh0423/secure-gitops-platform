@@ -1,0 +1,10 @@
+node_modules/
+coverage/
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+*.env
+.env.*
+/tmp/
+trivy-results.sarif

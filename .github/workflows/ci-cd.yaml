@@ -1,0 +1,165 @@
+name: Secure GitOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  ACR_REGISTRY: acrgitoopsdev.azurecr.io
+  IMAGE_NAME: secure-gitops-app
+  HELM_CHART_PATH: helm/charts/app
+
+jobs:
+  # ─────────────────────────────────────────
+  # Job 1: Lint and Test
+  # ─────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: app/coverage/
+
+  # ─────────────────────────────────────────
+  # Job 2: Build & Security Scan (Trivy)
+  # ─────────────────────────────────────────
+  build-and-scan:
+    name: Build & Trivy Scan
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: vars
+        run: echo "IMAGE_TAG=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }} \
+            -t ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ./app
+
+      # SHIFT-LEFT SECURITY: Scan before push
+      # Pipeline FAILS if CRITICAL or HIGH CVEs found
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }}"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: false
+
+      - name: Upload Trivy SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+      # Only push if scan passes
+      - name: Login to ACR
+        if: github.ref == 'refs/heads/main'
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Push image to ACR
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker push ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }}
+          docker push ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Output image tag
+        id: image
+        run: echo "tag=${{ steps.vars.outputs.IMAGE_TAG }}" >> $GITHUB_OUTPUT
+
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
+
+  # ─────────────────────────────────────────
+  # Job 3: Update Helm values → triggers ArgoCD
+  # ─────────────────────────────────────────
+  update-helm:
+    name: Update Helm Image Tag
+    runs-on: ubuntu-latest
+    needs: build-and-scan
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update image tag in Helm values
+        run: |
+          sed -i "s|tag: .*|tag: \"${{ needs.build-and-scan.outputs.image_tag }}\"|" \
+            ${{ env.HELM_CHART_PATH }}/values.yaml
+
+      - name: Commit updated Helm values
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ${{ env.HELM_CHART_PATH }}/values.yaml
+          git commit -m "chore: update image tag to ${{ needs.build-and-scan.outputs.image_tag }} [skip ci]"
+          git push
+      # ArgoCD detects this commit and auto-syncs to AKS
+
+  # ─────────────────────────────────────────
+  # Job 4: Validate Terraform (PR only)
+  # ─────────────────────────────────────────
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/dev
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: infrastructure/terraform/environments/dev
+        run: terraform validate
+
+      - name: Terraform Format Check
+        working-directory: infrastructure/terraform
+        run: terraform fmt -check -recursive

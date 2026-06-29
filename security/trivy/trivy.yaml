@@ -1,0 +1,36 @@
+# Trivy configuration for CI security scanning
+# Docs: https://aquasecurity.github.io/trivy/latest/docs/references/configuration/config-file/
+
+scan:
+  # Fail pipeline on CRITICAL vulnerabilities only in CI
+  # Change to HIGH for stricter enforcement
+  severity:
+    - CRITICAL
+    - HIGH
+
+  # Scan types to run
+  scanners:
+    - vuln      # OS and library vulnerabilities
+    - secret    # Hardcoded secrets and credentials
+    - misconfig # Dockerfile and K8s misconfigurations
+
+  # Exit code 1 = fail the pipeline
+  exit-code: 1
+
+image:
+  # Remove intermediate layers before scanning
+  removed-pkgs: true
+
+vulnerability:
+  # Ignore vulnerabilities with no fix available
+  ignore-unfixed: false
+
+report:
+  format: table  # CI output: table | json | sarif
+  output: ""     # stdout
+
+# Ignore specific CVEs with justification
+# ignorefile: .trivyignore
+
+cache:
+  dir: /tmp/trivy-cache

@@ -1,0 +1,49 @@
+groups:
+  - name: app-alerts
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          rate(http_requests_total{status_code=~"5.."}[5m])
+          /
+          rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      # Pod down
+      - alert: PodNotReady
+        expr: kube_pod_status_ready{condition="true"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pod {{ $labels.pod }} not ready"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been not ready for 2 minutes."
+
+      # High CPU
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{container="secure-gitops-app"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU on {{ $labels.pod }}"
+          description: "Container CPU usage is above 80% for 10 minutes."
+
+      # High memory
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{container="secure-gitops-app"}
+          /
+          container_spec_memory_limit_bytes{container="secure-gitops-app"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory on {{ $labels.pod }}"
+          description: "Container memory usage is above 85% of limit."

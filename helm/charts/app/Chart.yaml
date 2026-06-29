@@ -1,0 +1,9 @@
+apiVersion: v2
+name: secure-gitops-app
+description: Helm chart for the Secure GitOps Platform application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Lokesh Kumar Gaddala
+    url: https://github.com/Lokesh0423
