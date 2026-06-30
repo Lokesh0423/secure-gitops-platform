@@ -91,17 +91,8 @@ azure-cicd-pipeline/
 - **Branch strategy** — `develop` deploys to staging, `main` deploys to production
 - **End-to-end infra** — pairs with [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) for full IaC story
 
-## What I Learned Building This
 
-**Multi-stage Docker builds** — Separating the builder and runtime stages keeps the final image lean and clean. Adding a non-root user felt like a small thing but it's the kind of security detail that matters in production.
 
-**Kubernetes probes** — Liveness vs readiness took me a while to really get. Liveness restarts a broken container. Readiness stops traffic going to a container that isn't ready yet. Both matter, they're not the same thing.
-
-**Branch strategy** — Tying `develop` to staging and `main` to production makes the pipeline self-documenting. The branch name tells you exactly where your code is going.
-
-**Rolling updates** — Setting `maxUnavailable: 0` means zero downtime during deploys. Learned this the hard way understanding what happens when you don't set it.
-
-**ACR + AKS connection** — The service connection in Azure DevOps is the glue between the pipeline and the cloud. Getting that auth flow right was the most fiddly part of the whole setup.
 
 ## Related
 
