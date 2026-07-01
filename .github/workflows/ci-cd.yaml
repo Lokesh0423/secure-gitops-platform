@@ -12,9 +12,6 @@ env:
   HELM_CHART_PATH: helm/charts/app
 
 jobs:
-  # -----------------------------------------
-  # Job 1: Lint and Test
-  # -----------------------------------------
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
@@ -45,9 +42,6 @@ jobs:
           name: coverage-report
           path: app/coverage/
 
-  # -----------------------------------------
-  # Job 2: Build & Security Scan (Trivy)
-  # -----------------------------------------
   build-and-scan:
     name: Build & Trivy Scan
     runs-on: ubuntu-latest
@@ -70,8 +64,6 @@ jobs:
             -t ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ./app
 
-      # SHIFT-LEFT SECURITY: Scan before push
-      # Pipeline FAILS if CRITICAL or HIGH CVEs found
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -88,9 +80,8 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      # Only push if scan passes
       - name: Login to ACR
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && vars.ACR_CONFIGURED == 'true'
         uses: azure/docker-login@v1
         with:
           login-server: ${{ env.ACR_REGISTRY }}
@@ -98,10 +89,14 @@ jobs:
           password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Push image to ACR
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && vars.ACR_CONFIGURED == 'true'
         run: |
           docker push ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }}
           docker push ${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Skip push notice
+        if: github.ref == 'refs/heads/main' && vars.ACR_CONFIGURED != 'true'
+        run: echo "Skipping registry push - ACR_CONFIGURED repo variable not set. Image was built and scanned successfully."
 
       - name: Output image tag
         id: image
@@ -110,14 +105,11 @@ jobs:
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
 
-  # -----------------------------------------
-  # Job 3: Update Helm values -> triggers ArgoCD
-  # -----------------------------------------
   update-helm:
     name: Update Helm Image Tag
     runs-on: ubuntu-latest
     needs: build-and-scan
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.ACR_CONFIGURED == 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -136,11 +128,7 @@ jobs:
           git add ${{ env.HELM_CHART_PATH }}/values.yaml
           git commit -m "chore: update image tag to ${{ needs.build-and-scan.outputs.image_tag }} [skip ci]"
           git push
-      # ArgoCD detects this commit and auto-syncs to AKS
 
-  # -----------------------------------------
-  # Job 4: Validate Terraform (PR only)
-  # -----------------------------------------
   terraform-validate:
     name: Terraform Validate
     runs-on: ubuntu-latest
