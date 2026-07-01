@@ -1,100 +1,143 @@
-# azure-cicd-pipeline
+# secure-gitops-platform
 
-Multi-stage Azure DevOps CI/CD pipeline deploying a Dockerized Node.js app to AKS.
+Production-grade GitOps platform combining Platform Engineering, DevSecOps, and GitOps best practices.
 
-## Pipeline Architecture
+**Stack**: Kubernetes (AKS), ArgoCD, Helm, Terraform, GitHub Actions, Trivy, OPA Gatekeeper, Prometheus, Grafana
 
-```
-Code Push
-    │
-    ▼
-┌─────────────────┐
-│  Stage 1: Build │  → Install deps → Run tests → Build Docker image → Push to ACR
-└────────┬────────┘
-         │
-         ▼
-┌──────────────────────┐
-│ Stage 2: Staging     │  → Pull image from ACR → Deploy to AKS (staging namespace)
-└──────────┬───────────┘
-           │  (main branch only)
-           ▼
-┌──────────────────────┐
-│ Stage 3: Production  │  → Deploy to AKS (production namespace) → Health check
-└──────────────────────┘
-```
+## Architecture
 
-## Stack
-
-| Component | Technology |
-|-----------|-----------|
-| CI/CD | Azure DevOps Pipelines |
-| Containerization | Docker (multi-stage build) |
-| Registry | Azure Container Registry (ACR) |
-| Orchestration | Azure Kubernetes Service (AKS) |
-| Infra provisioning | Terraform (see `/terraform`) |
-| App | Node.js + Express |
+Git Push (main)
+│
+▼
+GitHub Actions CI Pipeline
+├─ Lint & Test (Jest, ESLint)
+├─ Build & Security Scan (Trivy)
+├─ SARIF report upload
+└─ Push image to registry (conditional)
+│
+▼
+ArgoCD Controller (watches Helm values)
+│
+├─ Pull image from registry
+├─ Apply Helm chart
+└─ Deploy to AKS (staging → production)
+│
+▼
+OPA Gatekeeper (policy enforcement)
+└─ Validate workload security constraints
+Prometheus + Grafana (observability)
+└─ Scrape application metrics at /metrics endpoint
 
 ## Repository Structure
-
-```
-azure-cicd-pipeline/
+secure-gitops-platform/
+├── .github/workflows/
+│   └── ci-cd.yaml              # Multi-job GitHub Actions pipeline
 ├── app/
-│   ├── app.js               # Express app with /health endpoint
-│   ├── package.json
-│   └── Dockerfile           # Multi-stage, non-root user
-├── k8s/
-│   ├── deployment.yaml      # Rolling update, resource limits, probes
-│   └── service.yaml         # LoadBalancer service
-├── .azure-pipelines/
-│   └── azure-pipelines.yml  # 3-stage pipeline: Build → Staging → Production
-├── terraform/
-│   └── README.md            # Links to terraform-azure-infra repo
+│   ├── src/index.js            # Express Node.js app with health & metrics endpoints
+│   ├── Dockerfile              # Multi-stage build, non-root user, npm --omit=dev
+│   ├── tests/                  # Jest tests with 100% coverage
+│   └── package.json
+├── helm/charts/app/
+│   ├── values.yaml             # Parameterized deployment config
+│   ├── templates/              # K8s manifests (deployment, service, configmap)
+│   └── Chart.yaml
+├── argocd/
+│   └── application.yaml        # ArgoCD Application resource for auto-sync
+├── infrastructure/terraform/
+│   ├── environments/dev/       # Dev environment Terraform
+│   ├── modules/                # Reusable modules (AKS, networking, ACR)
+│   └── README.md               # Infrastructure setup guide
+├── monitoring/prometheus/
+│   ├── prometheus.yaml         # Scrape config, retention policy
+│   └── alerts.yaml             # AlertManager rules (optional)
+├── security/
+│   └── opa-gatekeeper/         # OPA policies (enforce pod security, resource limits)
 └── README.md
-```
+
+## Key Features
+
+- **Shift-Left Security**: Trivy vulnerability scanning fails the pipeline on CRITICAL/HIGH CVEs
+- **GitOps Automation**: ArgoCD syncs from Git to AKS automatically
+- **Infrastructure as Code**: Terraform provisions AKS, networking, ACR end-to-end
+- **Policy as Code**: OPA Gatekeeper enforces security and resource constraints
+- **Observability**: Prometheus metrics, health checks, readiness probes, structured logging
+- **Zero-Downtime Deployments**: Rolling updates with maxUnavailable: 0
+- **Production-Ready**: Non-root containers, resource limits, RBAC, network policies
+
+## Pipeline Features
+
+- **CI**: Lint (ESLint), Test (Jest, 100% coverage), security scan (Trivy)
+- **CD**: Conditional Docker push and Helm value updates only when scan passes
+- **Artifact Upload**: Test coverage reports, Trivy SARIF for GitHub Security dashboard
+- **Branch Strategy**: main branch triggers full production deployment
 
 ## Setup
 
 ### Prerequisites
-- Azure subscription
-- Azure DevOps organization
-- AKS cluster + ACR provisioned via [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra)
+- Kubernetes cluster (AKS, EKS, or local Minikube)
+- ArgoCD installed (argocd CLI + namespace)
+- Terraform installed (v1.5.0+)
+- kubectl configured to access your cluster
 
-### Steps
+### Quick Start
 
-1. **Fork/clone this repo** and import into Azure DevOps
+1. Clone the repo:
+   git clone https://github.com/Lokesh0423/secure-gitops-platform.git
+   cd secure-gitops-platform
 
-2. **Create service connection** in Azure DevOps:
-   - Project Settings → Service Connections → New → Azure Resource Manager
-   - Name it `Azure-Service-Connection`
+2. Deploy infrastructure (optional, for AKS):
+   cd infrastructure/terraform/environments/dev
+   terraform init && terraform plan && terraform apply
 
-3. **Update pipeline variables** in `azure-pipelines.yml`:
-   ```yaml
-   ACR_NAME: 'youracrname'
-   AKS_CLUSTER: 'your-aks-cluster'
-   AKS_RESOURCE_GROUP: 'your-resource-group'
-   ```
+3. Install ArgoCD:
+   kubectl create namespace argocd
+   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-4. **Create namespaces** in AKS:
-   ```bash
-   kubectl create namespace staging
-   kubectl create namespace production
-   ```
+4. Create ArgoCD Application (watches this repo):
+   kubectl apply -f argocd/application.yaml
 
-5. **Run the pipeline** — push to `develop` triggers Build + Staging. Push to `main` triggers all 3 stages including Production.
+5. Deploy Prometheus (observability):
+   kubectl apply -f monitoring/prometheus/prometheus.yaml
 
-## Key Features
+6. Push to main to trigger the full pipeline:
+   git push origin main
 
-- **Multi-stage build** — Docker image with non-root user for security
-- **Rolling updates** — zero-downtime deployments on AKS
-- **Health checks** — liveness and readiness probes on `/health`
-- **Resource limits** — CPU and memory constraints defined per pod
-- **Branch strategy** — `develop` deploys to staging, `main` deploys to production
-- **End-to-end infra** — pairs with [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) for full IaC story
+## Local Development
 
+### Run Tests Locally
+cd app
+npm install
+npm test
 
+### Build Docker Image
+docker build -t secure-gitops-app:latest ./app
+docker run -p 3000:3000 secure-gitops-app:latest
 
+### Run Trivy Scan Locally
+trivy image --severity CRITICAL,HIGH secure-gitops-app:latest
 
-## Related
+### Apply Helm Chart Locally (Minikube)
+helm install app helm/charts/app --namespace default
+kubectl port-forward svc/app 3000:3000
 
-- [terraform-azure-infra](https://github.com/Lokesh0423/terraform-azure-infra) — AKS, VNet, ACR, Azure Monitor modules
-- `k8s-helm-charts` *(coming soon)* — Helm charts for parameterized deployments
+## Application Endpoints
+
+- GET / — Service info (name, version, status, timestamp)
+- GET /health — Liveness probe (returns status: healthy)
+- GET /ready — Readiness probe (returns status: ready)
+- GET /metrics — Prometheus metrics (scrape target for monitoring)
+
+## Security Practices
+
+✓ Non-root container user (UID 1001)
+✓ Multi-stage Docker build (minimal final image size)
+✓ No devDependencies in production (npm ci --omit=dev)
+✓ Resource limits enforced via Helm values
+✓ OPA Gatekeeper policies for pod security
+✓ Trivy scanning in CI (shift-left security)
+✓ SARIF reports for GitHub Security dashboard
+
+## Related Repositories
+
+- terraform-azure-infra: AKS, networking, ACR modules
+- azure-cicd-pipeline: Azure DevOps multi-stage pipeline
