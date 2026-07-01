@@ -12,9 +12,9 @@ env:
   HELM_CHART_PATH: helm/charts/app
 
 jobs:
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   # Job 1: Lint and Test
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
@@ -45,13 +45,16 @@ jobs:
           name: coverage-report
           path: app/coverage/
 
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   # Job 2: Build & Security Scan (Trivy)
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   build-and-scan:
     name: Build & Trivy Scan
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
       - uses: actions/checkout@v4
@@ -73,7 +76,8 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: "${{ env.ACR_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }}"
-          format: "table"
+          format: "sarif"
+          output: "trivy-results.sarif"
           exit-code: "1"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: false
@@ -106,9 +110,9 @@ jobs:
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
 
-  # ─────────────────────────────────────────
-  # Job 3: Update Helm values → triggers ArgoCD
-  # ─────────────────────────────────────────
+  # -----------------------------------------
+  # Job 3: Update Helm values -> triggers ArgoCD
+  # -----------------------------------------
   update-helm:
     name: Update Helm Image Tag
     runs-on: ubuntu-latest
@@ -134,9 +138,9 @@ jobs:
           git push
       # ArgoCD detects this commit and auto-syncs to AKS
 
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   # Job 4: Validate Terraform (PR only)
-  # ─────────────────────────────────────────
+  # -----------------------------------------
   terraform-validate:
     name: Terraform Validate
     runs-on: ubuntu-latest
