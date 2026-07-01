@@ -17,6 +17,15 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY src/ ./src/
 
+# Remove npm's bundled internals from the runtime image.
+# The app only needs `node` to run; npm is a build-time tool only,
+# and its own internal dependencies (tar, glob, minimatch, picomatch, etc.)
+# otherwise show up as false vulnerability findings in image scans.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /opt/yarn*
+
 RUN chown -R appuser:appgroup /app
 
 USER appuser
