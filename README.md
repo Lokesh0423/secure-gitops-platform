@@ -1,6 +1,6 @@
 # secure-gitops-platform
 
-Production-grade GitOps platform combining Platform Engineering, DevSecOps, and GitOps best practices.
+Production-grade GitOps platform combining Platform Engineering, DevSecOps, and GitOps best practices . 
 
 **Stack**: Kubernetes (AKS), ArgoCD, Helm, Terraform, GitHub Actions, Trivy, OPA Gatekeeper, Prometheus, Grafana
 
