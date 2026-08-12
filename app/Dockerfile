@@ -15,6 +15,7 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 COPY src/ ./src/
 
 # Remove npm's bundled internals from the runtime image.
