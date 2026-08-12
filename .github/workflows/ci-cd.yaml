@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main]
 
+env:
   ACR_REGISTRY: acrgitoopsdev.azurecr.io
   IMAGE_NAME: secure-gitops-app
   HELM_CHART_PATH: helm/charts/app
