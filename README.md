@@ -54,7 +54,7 @@ secure-gitops-platform/
 
 ## Key Features
 
-- **Shift-Left Security**: Trivy vulnerability scanning fails the pipeline on CRITICAL/HIGH CVEs
+- **Shift-Left Security**: Trivy vulnerability scanning fails the pipeline on CRITICAL/HIGH OS-level CVEs
 - **GitOps Automation**: ArgoCD syncs from Git to AKS automatically
 - **Infrastructure as Code**: Terraform provisions AKS, networking, ACR end-to-end
 - **Policy as Code**: OPA Gatekeeper enforces security and resource constraints
