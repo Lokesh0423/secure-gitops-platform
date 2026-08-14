@@ -69,6 +69,10 @@ secure-gitops-platform/
 - **Artifact Upload**: Test coverage reports, Trivy SARIF for GitHub Security dashboard
 - **Branch Strategy**: main branch triggers full production deployment
 
+## Known Limitations
+
+**Trivy node-pkg scanning:** Node.js dependency scanning currently hits an upstream trivy-action crash in this CI environment. The pipeline is scoped to OS-level (Alpine) vulnerability scanning as a pragmatic mitigation, while dependency-level checks run via `npm audit` in the test job.
+
 ## Setup
 
 ### Prerequisites
