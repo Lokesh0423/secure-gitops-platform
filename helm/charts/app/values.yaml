@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: acrgitoopsdev.azurecr.io/secure-gitops-app
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: "a52d3577"
 
 service:
   type: ClusterIP
